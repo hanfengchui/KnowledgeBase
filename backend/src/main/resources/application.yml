@@ -1,0 +1,56 @@
+server:
+  port: 8080
+
+spring:
+  profiles:
+    default: local
+  application:
+    name: ai-interview-assistant
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/ai_interview}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+  sql:
+    init:
+      mode: always
+  servlet:
+    multipart:
+      max-file-size: 8MB
+      max-request-size: 10MB
+  ai:
+    model:
+      chat: ollama
+      embedding: ollama
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      chat:
+        options:
+          model: ${AI_CHAT_MODEL:qwen3:8b}
+          temperature: 0.2
+      embedding:
+        options:
+          model: ${AI_EMBEDDING_MODEL:bge-m3}
+    vectorstore:
+      pgvector:
+        initialize-schema: true
+        table-name: ${AI_VECTOR_TABLE:local_vector_store}
+        dimensions: 1024
+        distance-type: COSINE_DISTANCE
+        index-type: HNSW
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+app:
+  ai:
+    top-k: 5
+    similarity-threshold: 0.55
+    max-chunk-chars: 900
+    chunk-overlap-chars: 120
+    chat-model: ${AI_CHAT_MODEL:qwen3:8b}
+    embedding-model: ${AI_EMBEDDING_MODEL:bge-m3}
+    vector-table-name: ${AI_VECTOR_TABLE:local_vector_store}
+    vector-enabled: ${AI_VECTOR_ENABLED:true}

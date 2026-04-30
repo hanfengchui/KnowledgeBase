@@ -1,0 +1,27 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ai_interview
+    username: postgres
+    password: postgres
+  ai:
+    ollama:
+      base-url: http://localhost:11434
+      chat:
+        options:
+          model: qwen3:8b
+          temperature: 0.2
+      embedding:
+        options:
+          model: bge-m3
+    vectorstore:
+      pgvector:
+        # bge-m3 returns 1024-dimensional embeddings.
+        table-name: local_vector_store
+        dimensions: 1024
+
+app:
+  ai:
+    chat-model: qwen3:8b
+    embedding-model: bge-m3
+    vector-table-name: local_vector_store
+    vector-enabled: true

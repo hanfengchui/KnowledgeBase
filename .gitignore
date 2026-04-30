@@ -1,0 +1,20 @@
+# macOS / IDE
+.DS_Store
+.idea/
+.vscode/
+
+# Java / Maven
+backend/target/
+*.class
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Local secrets
+backend/src/main/resources/application-local.yml
+.env
+
+# Logs
+*.log

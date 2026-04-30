@@ -1,0 +1,26 @@
+package com.example.aiinterview.controller;
+
+import com.example.aiinterview.dto.AskRequest;
+import com.example.aiinterview.dto.AskResponse;
+import com.example.aiinterview.service.ChatService;
+import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/api/chat")
+public class ChatController {
+
+    private final ChatService chatService;
+
+    public ChatController(ChatService chatService) {
+        this.chatService = chatService;
+    }
+
+    @PostMapping("/ask")
+    public AskResponse ask(@Valid @RequestBody AskRequest request) {
+        return chatService.ask(request);
+    }
+}
