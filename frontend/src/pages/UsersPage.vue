@@ -26,107 +26,40 @@
       </div>
     </article>
 
-    <article class="card">
-      <el-table :data="users" stripe>
-        <el-table-column prop="username" label="用户名" width="160" />
-        <el-table-column prop="displayName" label="显示名" width="160" />
-        <el-table-column prop="email" label="邮箱" min-width="220" />
-        <el-table-column prop="status" label="状态" width="110">
-          <template #default="{ row }">
-            <el-tag :type="row.status === 'active' ? 'success' : 'info'">{{ row.status }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="租户角色" min-width="220">
-          <template #default="{ row }">
-            <div class="tag-row">
-              <el-tag v-for="code in row.tenantRoleCodes" :key="code" size="small" effect="plain">{{ code }}</el-tag>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column label="平台角色" min-width="160">
-          <template #default="{ row }">
-            <div class="tag-row">
-              <el-tag v-for="code in row.platformRoleCodes" :key="code" size="small" type="warning" effect="plain">
-                {{ code }}
-              </el-tag>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column label="创建时间" width="180">
-          <template #default="{ row }">{{ formatDate(row.createdAt) }}</template>
-        </el-table-column>
-        <el-table-column label="操作" width="220">
-          <template #default="{ row }">
-            <el-button text @click="openRoleDialog(row)" :disabled="!canAssignRoles">分配角色</el-button>
-            <el-button text @click="handleToggleUser(row)">
-              {{ row.status === 'active' ? '停用' : '启用' }}
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </article>
+    <UserTable :users="users" :can-assign-roles="canAssignRoles" @open-role="openRoleDialog" @toggle-status="handleToggleUser" />
 
-    <el-dialog v-model="userDialogVisible" title="创建用户" width="540px">
-      <el-form label-position="top">
-        <el-form-item v-if="isPlatformAdmin" label="所属租户">
-          <el-select v-model="userForm.tenantId" class="dialog-select" placeholder="请选择租户">
-            <el-option v-for="tenant in availableTenants" :key="tenant.id" :label="tenant.name" :value="tenant.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="用户名">
-          <el-input v-model="userForm.username" />
-        </el-form-item>
-        <el-form-item label="显示名">
-          <el-input v-model="userForm.displayName" />
-        </el-form-item>
-        <el-form-item label="邮箱">
-          <el-input v-model="userForm.email" />
-        </el-form-item>
-        <el-form-item label="初始密码">
-          <el-input v-model="userForm.password" type="password" show-password />
-        </el-form-item>
-        <el-form-item label="租户角色">
-          <el-select v-model="userForm.tenantRoleCodes" multiple collapse-tags class="dialog-select">
-            <el-option v-for="item in tenantRoleOptions" :key="item.code" :label="item.name" :value="item.code" />
-          </el-select>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="userDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="creatingUser" @click="handleCreateUser">创建</el-button>
-      </template>
-    </el-dialog>
+    <UserCreateDialog
+      v-model="userDialogVisible"
+      :is-platform-admin="isPlatformAdmin"
+      :available-tenants="availableTenants"
+      :form="userForm"
+      :tenant-role-options="tenantRoleOptions"
+      :loading="creatingUser"
+      @submit="handleCreateUser"
+    />
 
-    <el-dialog v-model="roleDialogVisible" title="分配角色" width="560px">
-      <el-form label-position="top">
-        <el-form-item label="用户">
-          <el-input :model-value="roleDialogUserLabel" disabled />
-        </el-form-item>
-        <el-form-item v-if="isPlatformAdmin" label="平台角色">
-          <el-select v-model="roleAssignForm.platformRoleCodes" multiple collapse-tags class="dialog-select">
-            <el-option v-for="item in platformRoleOptions" :key="item.code" :label="item.name" :value="item.code" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="租户角色">
-          <el-select v-model="roleAssignForm.tenantRoleCodes" multiple collapse-tags class="dialog-select">
-            <el-option v-for="item in tenantRoleOptions" :key="item.code" :label="item.name" :value="item.code" />
-          </el-select>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="roleDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="savingRoles" @click="handleAssignRoles">保存</el-button>
-      </template>
-    </el-dialog>
+    <RoleAssignDialog
+      v-model="roleDialogVisible"
+      :is-platform-admin="isPlatformAdmin"
+      :user-label="roleDialogUserLabel"
+      :form="roleAssignForm"
+      :platform-role-options="platformRoleOptions"
+      :tenant-role-options="tenantRoleOptions"
+      :loading="savingRoles"
+      @submit="handleAssignRoles"
+    />
   </section>
 </template>
 
 <script setup>
 import { ElMessage } from 'element-plus'
+import RoleAssignDialog from '../components/admin/RoleAssignDialog.vue'
+import UserCreateDialog from '../components/admin/UserCreateDialog.vue'
+import UserTable from '../components/admin/UserTable.vue'
 import { useAppBootstrap } from '../composables/useAppBootstrap'
 import { useAdmin } from '../composables/useAdmin'
 import { useAuth } from '../composables/useAuth'
-import { extractError, formatDate } from '../composables/useUtils'
+import { extractError } from '../composables/useUtils'
 
 const { isPlatformAdmin, availableTenants } = useAuth()
 const {
