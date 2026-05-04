@@ -1,26 +1,61 @@
-# AI Interview Assistant
+# KnowledgeHub AI
 
-一个用于 Java AI 面试展示的本地项目：企业知识库 + 业务查询 AI 助手。
+一个可本地运行的 ToB v1 企业知识库与业务助手平台示例，覆盖：
 
-技术栈：
+- 本地账号密码登录
+- JWT 鉴权
+- 基础多租户隔离
+- 固定角色与知识库授权
+- 审计留痕
+- 知识库问答、文档入库、订单查询工具调用
 
-- 后端：Spring Boot 3、Spring AI、Ollama、本地大模型、PostgreSQL 17、pgvector
+## 当前版本能力
+
+- 认证与会话
+  - `username / password -> JWT access token`
+  - `GET /api/auth/me` 返回当前用户、当前租户、角色、权限和知识库访问范围
+  - `POST /api/auth/logout` 记录审计并吊销当前 token
+  - 平台管理员支持切换当前租户上下文
+
+- 多租户与权限
+  - 业务数据按 `tenant_id` 强制隔离
+  - 知识库可见性按当前用户权限过滤
+  - 问答、文档上传、重建索引、知识库成员授权全部走后端权限校验
+  - 向量 metadata 同时写入 `tenant_id` 和 `knowledge_base_id`
+
+- 管理后台
+  - 租户管理
+  - 用户管理
+  - 角色分配
+  - 知识库成员授权
+  - 审计日志查询
+
+- RAG 与工具能力
+  - 文档解析支持 `.txt / .md / .pdf / .docx`
+  - 优先向量检索，失败时自动回退关键词检索
+  - 无依据时统一返回“知识库未提供足够依据”
+  - 订单类问题可触发示例工具 `queryOrder`
+  - 无工具权限时仍可提问，但不会执行工具调用
+
+## 技术栈
+
+- 后端：Spring Boot 3、Spring Security、Spring AI、PostgreSQL 17、pgvector、Ollama
 - 前端：Vue 3、Vite、Element Plus
 - 默认模型：`qwen3:8b`、`bge-m3`
+- Java 包名：`com.example.knowledgeassistant`
 
-## 目录
+## 本地启动
 
-```text
-ai-interview-assistant/
-  backend/   Spring Boot 后端
-  frontend/  Vue 3 前端
-  samples/   演示知识库文档
-  docs/      面试讲解材料
+### 1. 切换到 Java 17
+
+当前机器若默认 `java` 仍指向 Java 8，需要先切换：
+
+```bash
+export JAVA_HOME="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
+export PATH="$JAVA_HOME/bin:/opt/homebrew/opt/postgresql@17/bin:$PATH"
 ```
 
-## 本机环境
-
-当前机器默认 Java 是 8；本项目需要 Java 17+ 编译运行。建议安装：
+如本机缺少依赖，可执行：
 
 ```bash
 brew install openjdk@17 postgresql@17 pgvector
@@ -31,84 +66,39 @@ ollama pull qwen3:8b
 ollama pull bge-m3
 ```
 
-如果默认 `java` 仍是 Java 8，启动后端前手动设置 Homebrew 安装路径：
+### 2. 初始化数据库
 
 ```bash
-export JAVA_HOME="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
-export PATH="/opt/homebrew/opt/openjdk@17/bin:/opt/homebrew/opt/postgresql@17/bin:$PATH"
+createdb knowledge_assistant
+psql -d knowledge_assistant -c 'CREATE EXTENSION IF NOT EXISTS vector;'
 ```
 
-创建数据库：
+默认数据库账号为 `postgres/postgres`。
 
-```bash
-createdb ai_interview
-psql -d ai_interview -c 'CREATE EXTENSION IF NOT EXISTS vector;'
-```
-
-本项目默认数据库账号是 `postgres/postgres`。如果本机 Homebrew PostgreSQL 还没有该账号，可以执行：
-
-```bash
-psql -d postgres -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'postgres') THEN CREATE ROLE postgres WITH LOGIN SUPERUSER PASSWORD 'postgres'; ELSE ALTER ROLE postgres WITH LOGIN PASSWORD 'postgres'; END IF; END \$\$;"
-psql -d postgres -c "ALTER DATABASE ai_interview OWNER TO postgres;"
-```
-
-如果之前已经执行过本机环境初始化，直接确认即可：
-
-```bash
-ollama list
-psql ai_interview -c 'SELECT name, installed_version FROM pg_available_extensions WHERE name = '\''vector'\'';'
-```
-
-## 后端配置
-
-复制本地配置文件：
+### 3. 启动后端
 
 ```bash
 cd backend
 cp src/main/resources/application-local.yml.example src/main/resources/application-local.yml
-```
-
-本地配置默认连接 Ollama：
-
-```yaml
-spring:
-  ai:
-    ollama:
-      base-url: http://localhost:11434
-      chat:
-        options:
-          model: qwen3:8b
-      embedding:
-        options:
-          model: bge-m3
-    vectorstore:
-      pgvector:
-        table-name: local_vector_store
-        dimensions: 1024
-```
-
-说明：
-
-- `qwen3:8b` 用于回答。
-- `bge-m3` 用于 embedding，向量维度是 `1024`。
-- `local_vector_store` 是本地模型专用向量表，避免和之前 OpenAI 1536 维表冲突。
-- 如果之前已经上传过文档但没有启用向量库，启动项目后点击“重建向量索引”即可补齐 embedding。
-
-启动后端：
-
-```bash
-cd backend
+export JAVA_HOME="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
+export PATH="$JAVA_HOME/bin:$PATH"
 mvn spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
-主要接口：
+后端启动时会自动初始化：
 
-- `POST /api/documents`：上传 `.txt` / `.md` 文档并入库
-- `GET /api/documents`：查看最近入库文档
-- `POST /api/documents/reindex`：重建 pgvector 向量索引
-- `POST /api/chat/ask`：提问，返回回答、来源、统计和工具调用记录
+- 平台管理员账号
+- 演示租户
+- 演示租户管理员账号
+- 固定角色、权限映射
+- 演示租户默认知识库
 
-## 前端启动
+默认配置项见：
+
+- [application.yml](/Users/df/Desktop/ai-interview-assistant/backend/src/main/resources/application.yml)
+- [application-local.yml.example](/Users/df/Desktop/ai-interview-assistant/backend/src/main/resources/application-local.yml.example)
+
+### 4. 启动前端
 
 ```bash
 cd frontend
@@ -116,22 +106,79 @@ npm install
 npm run dev
 ```
 
-访问：`http://localhost:5173`
+访问地址：`http://localhost:5173`
 
-## 演示流程
+## 默认账号
 
-1. 启动 PostgreSQL、后端、前端。
-2. 在“文档上传”页上传 `samples/company_knowledge.md`。
-3. 在“AI 问答”页依次测试：
-   - `企业退款规则是什么？`
-   - `知识库里有没有提到加班餐补标准？`
-   - `查询 ORD-2026-0001 的订单状态`
+- 平台管理员：`platform-admin / ChangeMe123!`
+- 演示租户管理员：`tenant-admin / TenantAdmin123!`
 
-前两个问题展示 RAG 命中/未命中；第三个问题展示本地业务工具查询。
+`platform-admin` 登录后可切换到任意已启用租户。
 
-## 面试讲解要点
+## 主要接口
 
-- RAG 链路：上传文档 → chunk → embedding → pgvector → topK 召回 → 拼接上下文 → LLM 生成。
-- 降低幻觉：系统提示词要求“无依据则说明不足”，接口返回召回来源，前端展示 score 和原文片段。
-- 工具调用：订单类问题由后端工具 `queryOrder(orderNo)` 查询模拟业务系统，再把工具结果交给模型总结。
-- 工程化：模型名、topK、阈值、向量表、数据库连接都放配置；本地模型不依赖外部 API Key；前后端分层明确。
+### 认证
+
+- `POST /api/auth/login`
+- `GET /api/auth/me`
+- `POST /api/auth/logout`
+- `POST /api/auth/switch-tenant`
+
+### 业务
+
+- `GET /api/knowledge-bases`
+- `POST /api/knowledge-bases`
+- `GET /api/documents?knowledgeBaseId=...`
+- `POST /api/documents`
+- `POST /api/documents/reindex?knowledgeBaseId=...`
+- `POST /api/chat/ask`
+
+### 管理后台
+
+- `GET /api/admin/tenants`
+- `POST /api/admin/tenants`
+- `PATCH /api/admin/tenants/{id}`
+- `GET /api/admin/users`
+- `POST /api/admin/users`
+- `PATCH /api/admin/users/{id}`
+- `GET /api/admin/roles`
+- `POST /api/admin/users/{id}/roles`
+- `GET /api/admin/knowledge-bases/{id}/members`
+- `POST /api/admin/knowledge-bases/{id}/members`
+- `DELETE /api/admin/knowledge-bases/{id}/members?userId=...`
+- `GET /api/admin/audit-logs`
+
+## 核心表
+
+- `tenants`
+- `users`
+- `roles`
+- `permissions`
+- `role_permissions`
+- `user_roles`
+- `knowledge_bases`
+- `knowledge_base_members`
+- `kb_documents`
+- `kb_chunks`
+- `revoked_tokens`
+- `audit_logs`
+- `local_vector_store`
+
+库表脚本见 [schema.sql](/Users/df/Desktop/ai-interview-assistant/backend/src/main/resources/schema.sql)。
+
+## 推荐演示路径
+
+1. 使用 `platform-admin` 登录，查看租户管理和审计日志。
+2. 切到 `demo` 租户，进入用户管理或直接退出。
+3. 使用 `tenant-admin` 登录，创建一个普通用户并分配租户角色。
+4. 新建知识库或进入默认知识库，上传 `samples/` 下的文档。
+5. 在工作台提问：
+   - `企业标准退款规则是什么？`
+   - `客户要求接入 Oracle 和 Elasticsearch 时需要走什么流程？`
+   - `查询 ORD-2026-0001 当前状态`
+6. 在角色授权页给某个用户分配 `kb_viewer / kb_editor / kb_tool_operator`，再重新登录验证不同菜单和操作差异。
+
+## 已验证
+
+- 后端：`mvn test`
+- 前端：`npm run build`

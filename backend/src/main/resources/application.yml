@@ -5,9 +5,9 @@ spring:
   profiles:
     default: local
   application:
-    name: ai-interview-assistant
+    name: knowledge-assistant-service
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/ai_interview}
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/knowledge_assistant}
     username: ${DB_USERNAME:postgres}
     password: ${DB_PASSWORD:postgres}
   sql:
@@ -45,7 +45,7 @@ management:
         include: health,info
 
 app:
-  ai:
+  knowledge-assistant:
     top-k: 5
     similarity-threshold: 0.55
     max-chunk-chars: 900
@@ -54,3 +54,9 @@ app:
     embedding-model: ${AI_EMBEDDING_MODEL:bge-m3}
     vector-table-name: ${AI_VECTOR_TABLE:local_vector_store}
     vector-enabled: ${AI_VECTOR_ENABLED:true}
+  security:
+    jwt-secret: ${APP_JWT_SECRET:change-this-demo-secret-before-production}
+    access-token-ttl-minutes: ${APP_ACCESS_TOKEN_TTL_MINUTES:120}
+    bootstrap-admin:
+      username: ${APP_BOOTSTRAP_ADMIN_USERNAME:platform-admin}
+      password: ${APP_BOOTSTRAP_ADMIN_PASSWORD:ChangeMe123!}

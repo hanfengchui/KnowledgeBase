@@ -1,6 +1,6 @@
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/ai_interview
+    url: jdbc:postgresql://localhost:5432/knowledge_assistant
     username: postgres
     password: postgres
   ai:
@@ -20,8 +20,14 @@ spring:
         dimensions: 1024
 
 app:
-  ai:
+  knowledge-assistant:
     chat-model: qwen3:8b
     embedding-model: bge-m3
     vector-table-name: local_vector_store
     vector-enabled: true
+  security:
+    jwt-secret: change-this-demo-secret-before-production
+    access-token-ttl-minutes: 120
+    bootstrap-admin:
+      username: platform-admin
+      password: ChangeMe123!
