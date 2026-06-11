@@ -9,8 +9,8 @@ public class KnowledgeAssistantProperties {
     private double similarityThreshold = 0.55;
     private int maxChunkChars = 900;
     private int chunkOverlapChars = 120;
-    private String chatModel = "qwen3:8b";
-    private String embeddingModel = "bge-m3";
+    private String chatModel = "qwen-plus";
+    private String embeddingModel = "text-embedding-v4";
     private String vectorTableName = "local_vector_store";
     private boolean vectorEnabled = true;
 

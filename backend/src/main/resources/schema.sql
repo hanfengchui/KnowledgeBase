@@ -242,3 +242,47 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_user_created_at
 
 CREATE INDEX IF NOT EXISTS idx_audit_logs_action_created_at
     ON audit_logs (action, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS agent_runs (
+    id UUID PRIMARY KEY,
+    tenant_id UUID REFERENCES tenants (id) ON DELETE SET NULL,
+    user_id UUID REFERENCES users (id) ON DELETE SET NULL,
+    knowledge_base_id UUID REFERENCES knowledge_bases (id) ON DELETE SET NULL,
+    question TEXT NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    used_rag BOOLEAN NOT NULL DEFAULT FALSE,
+    used_tools BOOLEAN NOT NULL DEFAULT FALSE,
+    retrieved_count INTEGER NOT NULL DEFAULT 0,
+    tool_call_count INTEGER NOT NULL DEFAULT 0,
+    latency_ms BIGINT NOT NULL DEFAULT 0,
+    error_message TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_runs_tenant_created_at
+    ON agent_runs (tenant_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_agent_runs_user_created_at
+    ON agent_runs (user_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_agent_runs_kb_created_at
+    ON agent_runs (knowledge_base_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS agent_steps (
+    id UUID PRIMARY KEY,
+    run_id UUID NOT NULL REFERENCES agent_runs (id) ON DELETE CASCADE,
+    step_index INTEGER NOT NULL,
+    step_type VARCHAR(64) NOT NULL,
+    name VARCHAR(120) NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    input_summary TEXT,
+    output_summary TEXT,
+    latency_ms BIGINT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at TIMESTAMPTZ,
+    UNIQUE (run_id, step_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_steps_run_step
+    ON agent_steps (run_id, step_index);

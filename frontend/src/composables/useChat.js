@@ -9,6 +9,7 @@ const asking = ref(false)
 const answer = ref('')
 const sources = ref([])
 const toolCalls = ref([])
+const agentTrace = ref(null)
 const questionHistory = ref([])
 
 const stats = reactive({
@@ -99,6 +100,7 @@ function resetConversationView() {
   answer.value = ''
   sources.value = []
   toolCalls.value = []
+  agentTrace.value = null
   resetStats()
 }
 
@@ -113,6 +115,7 @@ async function submitQuestion() {
     answer.value = response.answer
     sources.value = response.sources || []
     toolCalls.value = canUseToolInCurrentKnowledgeBase.value ? (response.toolCalls || []) : []
+    agentTrace.value = response.agentTrace || null
     Object.assign(stats, response.stats || {})
     recordQuestionHistory({
       id: crypto.randomUUID(),
@@ -147,6 +150,7 @@ export function useChat() {
     answer,
     sources,
     toolCalls,
+    agentTrace,
     questionHistory,
     stats,
     questionExamples,

@@ -6,6 +6,7 @@ public record AskResponse(
         String answer,
         List<SourceDto> sources,
         ChatStats stats,
-        List<ToolCallDto> toolCalls
+        List<ToolCallDto> toolCalls,
+        AgentTraceDto agentTrace
 ) {
 }

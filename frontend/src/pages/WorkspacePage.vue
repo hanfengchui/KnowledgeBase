@@ -16,6 +16,8 @@
 
     <ChatHistoryCard :history="questionHistory" @clear="clearQuestionHistory" @reuse="reuseHistoryQuestion" />
 
+    <ChatAgentTraceCard :agent-trace="agentTrace" />
+
     <ChatToolCallsCard :tool-calls="toolCalls" />
 
     <ChatSourcesCard :sources="sources" />
@@ -24,6 +26,7 @@
 
 <script setup>
 import { ElMessage } from 'element-plus'
+import ChatAgentTraceCard from '../components/chat/ChatAgentTraceCard.vue'
 import ChatAnswerCard from '../components/chat/ChatAnswerCard.vue'
 import ChatHistoryCard from '../components/chat/ChatHistoryCard.vue'
 import ChatQuestionCard from '../components/chat/ChatQuestionCard.vue'
@@ -41,6 +44,7 @@ const {
   answer,
   sources,
   toolCalls,
+  agentTrace,
   questionHistory,
   stats,
   questionExamples,

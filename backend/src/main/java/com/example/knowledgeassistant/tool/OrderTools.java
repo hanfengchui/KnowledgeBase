@@ -4,6 +4,8 @@ import com.example.knowledgeassistant.dto.OrderInfo;
 import com.example.knowledgeassistant.service.ToolExecutionRecorder;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import org.springaicommunity.mcp.annotation.McpTool;
+import org.springaicommunity.mcp.annotation.McpToolParam;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -49,8 +51,10 @@ public class OrderTools {
     }
 
     @Tool(name = "queryOrder", description = "根据订单号查询业务系统中的订单、支付、物流或退款状态")
+    @McpTool(name = "queryOrder", description = "根据订单号查询业务系统中的订单、支付、物流或退款状态")
     public OrderInfo queryOrder(
             @ToolParam(description = "订单号，例如 ORD-2026-0001")
+            @McpToolParam(description = "订单号，例如 ORD-2026-0001")
             String orderNo
     ) {
         String normalizedOrderNo = orderNo == null ? "" : orderNo.trim().toUpperCase(Locale.ROOT);

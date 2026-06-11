@@ -7,7 +7,7 @@
 - 基础多租户隔离
 - 固定角色与知识库授权
 - 审计留痕
-- 知识库问答、文档入库、订单查询工具调用
+- 知识库问答、文档入库、订单查询工具调用、Agent 执行轨迹
 
 ## 当前版本能力
 
@@ -34,15 +34,36 @@
   - 文档解析支持 `.txt / .md / .pdf / .docx`
   - 优先向量检索，失败时自动回退关键词检索
   - 无依据时统一返回“知识库未提供足够依据”
+  - 知识库检索封装为工具 `searchKnowledgeBase`
   - 订单类问题可触发示例工具 `queryOrder`
   - 无工具权限时仍可提问，但不会执行工具调用
 
+- 轻量 Agent 与可观测性
+  - `AgentService` 编排 RAG 检索、业务工具调用、证据校验和模型生成
+  - `agent_runs / agent_steps` 记录每次问答的执行步骤、耗时、工具调用和结果摘要
+  - 前端工作台展示 Agent 执行轨迹、工具调用记录、来源片段和模型统计
+  - Actuator 暴露 `health / info / metrics / prometheus`
+  - Spring AI MCP Server starter 暴露本地工具能力，便于后续接入 MCP 客户端
+
 ## 技术栈
 
-- 后端：Spring Boot 3、Spring Security、Spring AI、PostgreSQL 17、pgvector、Ollama
+- 后端：Spring Boot 3、Spring Security、Spring AI、Spring AI MCP Server、PostgreSQL 17、pgvector、阿里云百炼 OpenAI 兼容 API、Micrometer / Actuator
 - 前端：Vue 3、Vite、Element Plus
-- 默认模型：`qwen3:8b`、`bge-m3`
+- 默认模型：`qwen-plus`、`text-embedding-v4`
 - Java 包名：`com.example.knowledgeassistant`
+
+## Agent 改造说明
+
+当前项目定位为“Spring AI + RAG + Tool Calling + MCP + 权限审计 + 可观测性”的轻量业务智能体原型：
+
+- RAG：`KnowledgeBaseService` 完成文档解析、chunk 切分、Embedding、pgvector 写入、向量检索和关键词兜底。
+- Tool Calling：`OrderTools` 提供订单查询工具，`KnowledgeBaseTools` 提供知识库检索工具，`AgentToolRegistry` 统一注册工具。
+- 权限控制：问答、文档、知识库和工具调用均走后端权限校验，工具权限不足时记录审计并跳过调用。
+- Agent Trace：`AgentRunRecorder` 持久化 `agent_runs / agent_steps`，记录 RAG、工具、guardrail、LLM 生成等步骤。
+- MCP：引入 Spring AI MCP Server starter，复用 `@Tool` 暴露工具能力。
+- 可观测性：通过 Actuator/Micrometer 暴露基础指标，业务侧通过审计日志和 Agent Trace 追踪每次执行。
+
+关于 LangGraph4j：它适合有状态图编排、多智能体协作、Planner-Executor、Human-in-the-loop 等更复杂场景。当前项目以单轮企业知识库问答和受控工具调用为主，先使用 Spring AI 原生 Tool Calling + 自研 Agent Run/Step 记录，复杂度更低，也更容易解释。后续如果要做多步骤规划、循环执行和人工确认节点，可以再引入 LangGraph4j。
 
 ## 本地启动
 
@@ -59,11 +80,7 @@ export PATH="$JAVA_HOME/bin:/opt/homebrew/opt/postgresql@17/bin:$PATH"
 
 ```bash
 brew install openjdk@17 postgresql@17 pgvector
-brew install ollama
 brew services start postgresql@17
-brew services start ollama
-ollama pull qwen3:8b
-ollama pull bge-m3
 ```
 
 ### 2. 初始化数据库
@@ -82,6 +99,11 @@ cd backend
 cp src/main/resources/application-local.yml.example src/main/resources/application-local.yml
 export JAVA_HOME="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
 export PATH="$JAVA_HOME/bin:$PATH"
+export BAILIAN_API_KEY="你的百炼 API Key"
+# 可选：覆盖默认模型
+# export AI_CHAT_MODEL="qwen-plus"
+# export AI_EMBEDDING_MODEL="text-embedding-v4"
+# export AI_EMBEDDING_DIMENSIONS="1024"
 mvn spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
@@ -162,6 +184,8 @@ npm run dev
 - `kb_chunks`
 - `revoked_tokens`
 - `audit_logs`
+- `agent_runs`
+- `agent_steps`
 - `local_vector_store`
 
 库表脚本见 [schema.sql](/Users/df/Desktop/ai-interview-assistant/backend/src/main/resources/schema.sql)。
@@ -172,7 +196,7 @@ npm run dev
 2. 切到 `demo` 租户，进入用户管理或直接退出。
 3. 使用 `tenant-admin` 登录，创建一个普通用户并分配租户角色。
 4. 新建知识库或进入默认知识库，上传 `samples/` 下的文档。
-5. 在工作台提问：
+5. 在工作台提问并查看 Agent 执行轨迹：
    - `企业标准退款规则是什么？`
    - `客户要求接入 Oracle 和 Elasticsearch 时需要走什么流程？`
    - `查询 ORD-2026-0001 当前状态`

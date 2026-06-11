@@ -4,25 +4,31 @@ spring:
     username: postgres
     password: postgres
   ai:
-    ollama:
-      base-url: http://localhost:11434
+    openai:
+      # Fill this via environment variable instead of committing a real key:
+      # export BAILIAN_API_KEY="sk-..."
+      api-key: ${BAILIAN_API_KEY:}
+      base-url: ${BAILIAN_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
       chat:
+        completions-path: /chat/completions
         options:
-          model: qwen3:8b
+          model: ${AI_CHAT_MODEL:qwen-plus}
           temperature: 0.2
       embedding:
+        embeddings-path: /embeddings
         options:
-          model: bge-m3
+          model: ${AI_EMBEDDING_MODEL:text-embedding-v4}
+          dimensions: ${AI_EMBEDDING_DIMENSIONS:1024}
     vectorstore:
       pgvector:
-        # bge-m3 returns 1024-dimensional embeddings.
+        # text-embedding-v4 is configured to return 1024-dimensional embeddings.
         table-name: local_vector_store
         dimensions: 1024
 
 app:
   knowledge-assistant:
-    chat-model: qwen3:8b
-    embedding-model: bge-m3
+    chat-model: ${AI_CHAT_MODEL:qwen-plus}
+    embedding-model: ${AI_EMBEDDING_MODEL:text-embedding-v4}
     vector-table-name: local_vector_store
     vector-enabled: true
   security:

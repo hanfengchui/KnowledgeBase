@@ -19,17 +19,21 @@ spring:
       max-request-size: 10MB
   ai:
     model:
-      chat: ollama
-      embedding: ollama
-    ollama:
-      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      chat: openai
+      embedding: openai
+    openai:
+      api-key: ${BAILIAN_API_KEY:${OPENAI_API_KEY:}}
+      base-url: ${BAILIAN_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
       chat:
+        completions-path: /chat/completions
         options:
-          model: ${AI_CHAT_MODEL:qwen3:8b}
+          model: ${AI_CHAT_MODEL:qwen-plus}
           temperature: 0.2
       embedding:
+        embeddings-path: /embeddings
         options:
-          model: ${AI_EMBEDDING_MODEL:bge-m3}
+          model: ${AI_EMBEDDING_MODEL:text-embedding-v4}
+          dimensions: ${AI_EMBEDDING_DIMENSIONS:1024}
     vectorstore:
       pgvector:
         initialize-schema: true
@@ -42,7 +46,10 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,metrics,prometheus
+  observations:
+    key-values:
+      application: ${spring.application.name}
 
 app:
   knowledge-assistant:
@@ -50,8 +57,8 @@ app:
     similarity-threshold: 0.55
     max-chunk-chars: 900
     chunk-overlap-chars: 120
-    chat-model: ${AI_CHAT_MODEL:qwen3:8b}
-    embedding-model: ${AI_EMBEDDING_MODEL:bge-m3}
+    chat-model: ${AI_CHAT_MODEL:qwen-plus}
+    embedding-model: ${AI_EMBEDDING_MODEL:text-embedding-v4}
     vector-table-name: ${AI_VECTOR_TABLE:local_vector_store}
     vector-enabled: ${AI_VECTOR_ENABLED:true}
   security:
@@ -60,3 +67,12 @@ app:
     bootstrap-admin:
       username: ${APP_BOOTSTRAP_ADMIN_USERNAME:platform-admin}
       password: ${APP_BOOTSTRAP_ADMIN_PASSWORD:ChangeMe123!}
+
+  ai:
+    mcp:
+      server:
+        name: knowledgehub-ai
+        version: 0.1.0
+        type: sync
+        enabled: ${AI_MCP_SERVER_ENABLED:true}
+        sse-message-endpoint: /mcp/messages

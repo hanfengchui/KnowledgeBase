@@ -6,6 +6,8 @@ import com.example.knowledgeassistant.dto.KnowledgeBaseSummary;
 import com.example.knowledgeassistant.dto.SourceDto;
 import com.example.knowledgeassistant.security.AuthorizationCatalog;
 import com.example.knowledgeassistant.security.CurrentUser;
+import com.example.knowledgeassistant.tool.AgentToolRegistry;
+import com.example.knowledgeassistant.tool.KnowledgeBaseTools;
 import com.example.knowledgeassistant.tool.OrderTools;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -13,6 +15,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.tool.ToolCallback;
 
 import java.time.Instant;
 import java.util.List;
@@ -48,11 +51,17 @@ class ChatServiceTest {
     @Mock
     private AuditLogService auditLogService;
 
+    @Mock
+    private AgentRunRecorder agentRunRecorder;
+
     private KnowledgeAssistantProperties properties;
     private ToolExecutionRecorder recorder;
     private OrderTools orderTools;
+    private KnowledgeBaseTools knowledgeBaseTools;
+    private AgentToolRegistry agentToolRegistry;
     private KnowledgeBaseSummary knowledgeBase;
     private CurrentUser currentUser;
+    private AgentRunRecorder.AgentRun agentRun;
 
     @BeforeEach
     void setUp() {
@@ -61,11 +70,13 @@ class ChatServiceTest {
 
         properties = new KnowledgeAssistantProperties();
         properties.setTopK(5);
-        properties.setChatModel("qwen3:8b");
-        properties.setEmbeddingModel("bge-m3");
+        properties.setChatModel("qwen-plus");
+        properties.setEmbeddingModel("text-embedding-v4");
 
         recorder = new ToolExecutionRecorder();
         orderTools = new OrderTools(recorder);
+        knowledgeBaseTools = new KnowledgeBaseTools(knowledgeBaseService, recorder);
+        agentToolRegistry = new AgentToolRegistry(orderTools, knowledgeBaseTools);
         knowledgeBase = new KnowledgeBaseSummary(
                 UUID.fromString("11111111-1111-1111-1111-111111111111"),
                 UUID.fromString("20000000-0000-0000-0000-000000000001"),
@@ -88,20 +99,31 @@ class ChatServiceTest {
         when(currentUserProvider.getCurrentUser()).thenReturn(currentUser);
         doNothing().when(permissionService).requireKnowledgeBasePermission(currentUser, knowledgeBase.id(), AuthorizationCatalog.PERMISSION_CHAT_ASK);
         when(permissionService.hasKnowledgeBasePermission(currentUser, knowledgeBase.id(), AuthorizationCatalog.PERMISSION_TOOL_QUERY_ORDER)).thenReturn(false);
+        when(auditLogService.summarize(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> invocation.getArgument(0));
+        agentRun = new AgentRunRecorder.AgentRun(UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"), Instant.parse("2026-05-01T00:00:00Z"));
+        when(agentRunRecorder.start(org.mockito.ArgumentMatchers.eq(currentUser), org.mockito.ArgumentMatchers.eq(knowledgeBase.id()), anyString())).thenReturn(agentRun);
+        when(agentRunRecorder.toTrace(org.mockito.ArgumentMatchers.eq(agentRun), anyString())).thenReturn(new com.example.knowledgeassistant.dto.AgentTraceDto(agentRun.id(), "succeeded", List.of()));
     }
 
-    @Test
-    void returnsEvidenceShortageWhenNoSourcesAndNoToolResults() {
-        ChatService service = new ChatService(
+    private ChatService chatService() {
+        AgentService agentService = new AgentService(
                 chatClientBuilder,
                 knowledgeBaseService,
                 properties,
                 orderTools,
+                agentToolRegistry,
                 recorder,
+                agentRunRecorder,
                 currentUserProvider,
                 permissionService,
                 auditLogService
         );
+        return new ChatService(agentService);
+    }
+
+    @Test
+    void returnsEvidenceShortageWhenNoSourcesAndNoToolResults() {
+        ChatService service = chatService();
         AskRequest request = new AskRequest("知识库里有没有班车路线？", 5, knowledgeBase.id());
 
         when(knowledgeBaseService.resolveKnowledgeBaseOrDefault(knowledgeBase.id())).thenReturn(knowledgeBase);
@@ -119,22 +141,13 @@ class ChatServiceTest {
 
     @Test
     void usesToolResultsWhenQuestionContainsOrderNumber() {
-        ChatService service = new ChatService(
-                chatClientBuilder,
-                knowledgeBaseService,
-                properties,
-                orderTools,
-                recorder,
-                currentUserProvider,
-                permissionService,
-                auditLogService
-        );
+        ChatService service = chatService();
         AskRequest request = new AskRequest("请查询 ORD-2026-0001 当前状态", 5, knowledgeBase.id());
 
         when(knowledgeBaseService.resolveKnowledgeBaseOrDefault(knowledgeBase.id())).thenReturn(knowledgeBase);
         when(knowledgeBaseService.search(knowledgeBase.id(), request.question(), 5)).thenReturn(List.of());
         when(permissionService.hasKnowledgeBasePermission(currentUser, knowledgeBase.id(), AuthorizationCatalog.PERMISSION_TOOL_QUERY_ORDER)).thenReturn(true);
-        when(chatClient.prompt().user(anyString()).call().content()).thenReturn("订单已发货，预计按计划送达。");
+        when(chatClient.prompt().toolCallbacks(org.mockito.ArgumentMatchers.<List<ToolCallback>>any()).user(anyString()).call().content()).thenReturn("订单已发货，预计按计划送达。");
         clearInvocations(chatClient);
 
         var response = service.ask(request);
@@ -150,16 +163,7 @@ class ChatServiceTest {
 
     @Test
     void usesRetrievedSourcesWhenKnowledgeBaseHasEvidence() {
-        ChatService service = new ChatService(
-                chatClientBuilder,
-                knowledgeBaseService,
-                properties,
-                orderTools,
-                recorder,
-                currentUserProvider,
-                permissionService,
-                auditLogService
-        );
+        ChatService service = chatService();
         AskRequest request = new AskRequest("企业标准退款规则是什么？", 3, knowledgeBase.id());
 
         List<SourceDto> sources = List.of(
@@ -178,7 +182,7 @@ class ChatServiceTest {
 
         when(knowledgeBaseService.resolveKnowledgeBaseOrDefault(knowledgeBase.id())).thenReturn(knowledgeBase);
         when(knowledgeBaseService.search(knowledgeBase.id(), request.question(), 3)).thenReturn(sources);
-        when(chatClient.prompt().user(anyString()).call().content()).thenReturn("标准规则是合同生效后 7 个自然日内可申请退款。");
+        when(chatClient.prompt().toolCallbacks(org.mockito.ArgumentMatchers.<List<ToolCallback>>any()).user(anyString()).call().content()).thenReturn("标准规则是合同生效后 7 个自然日内可申请退款。");
         clearInvocations(chatClient);
 
         var response = service.ask(request);
@@ -193,16 +197,7 @@ class ChatServiceTest {
 
     @Test
     void skipsToolExecutionWhenUserLacksToolPermission() {
-        ChatService service = new ChatService(
-                chatClientBuilder,
-                knowledgeBaseService,
-                properties,
-                orderTools,
-                recorder,
-                currentUserProvider,
-                permissionService,
-                auditLogService
-        );
+        ChatService service = chatService();
         AskRequest request = new AskRequest("请查询 ORD-2026-0001 当前状态", 5, knowledgeBase.id());
 
         when(knowledgeBaseService.resolveKnowledgeBaseOrDefault(knowledgeBase.id())).thenReturn(knowledgeBase);
