@@ -51,6 +51,12 @@ management:
     key-values:
       application: ${spring.application.name}
 
+logging:
+  pattern:
+    level: "%5p [requestId:%X{requestId:-}]"
+  level:
+    com.example.knowledgeassistant: ${APP_LOG_LEVEL:INFO}
+
 app:
   knowledge-assistant:
     top-k: 5

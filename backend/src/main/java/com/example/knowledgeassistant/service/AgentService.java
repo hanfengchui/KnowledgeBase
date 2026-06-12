@@ -12,6 +12,8 @@ import com.example.knowledgeassistant.security.AuthorizationCatalog;
 import com.example.knowledgeassistant.security.CurrentUser;
 import com.example.knowledgeassistant.tool.AgentToolRegistry;
 import com.example.knowledgeassistant.tool.OrderTools;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -28,6 +30,8 @@ import java.util.regex.Pattern;
 
 @Service
 public class AgentService {
+
+    private static final Logger log = LoggerFactory.getLogger(AgentService.class);
 
     private static final Pattern ORDER_NO_PATTERN = Pattern.compile("(?i)\\bORD-\\d{4}-\\d{4}\\b");
     private static final Pattern BUSINESS_STATUS_HINT_PATTERN = Pattern.compile("(?i)(查询|当前状态|订单状态|物流|退款状态|支付状态|发货)");
@@ -92,6 +96,18 @@ public class AgentService {
         boolean canUseBusinessTools = currentUser.isPlatformAdmin()
                 || permissionService.hasKnowledgeBasePermission(currentUser, knowledgeBase.id(), AuthorizationCatalog.PERMISSION_TOOL_QUERY_ORDER);
 
+        log.info(
+                "Agent run started runId={} username={} tenant={} knowledgeBaseId={} topK={} questionChars={} requestedOrderQuery={} canUseBusinessTools={}",
+                run.id(),
+                currentUser.username(),
+                currentUser.tenantCode(),
+                knowledgeBase.id(),
+                topK,
+                question.length(),
+                requestedOrderQuery,
+                canUseBusinessTools
+        );
+
         toolExecutionRecorder.start();
         String answer = null;
         List<ToolCallDto> toolCalls = List.of();
@@ -103,28 +119,43 @@ public class AgentService {
         try {
             Instant retrieveStart = Instant.now();
             sources = knowledgeBaseService.search(knowledgeBase.id(), question, topK);
+            long ragLatencyMs = elapsedMs(retrieveStart);
             agentRunRecorder.recordStep(
                     run,
                     "rag",
                     "searchKnowledgeBase",
                     "knowledgeBaseId=" + knowledgeBase.id() + ", topK=" + topK + ", question=" + question,
                     agentRunRecorder.summarizeSources(sources.size()),
-                    elapsedMs(retrieveStart),
+                    ragLatencyMs,
                     "succeeded"
+            );
+            log.info(
+                    "Agent RAG step completed runId={} knowledgeBaseId={} retrievedCount={} latencyMs={}",
+                    run.id(),
+                    knowledgeBase.id(),
+                    sources.size(),
+                    ragLatencyMs
             );
 
             if (requestedOrderQuery && canUseBusinessTools) {
                 Instant toolStart = Instant.now();
                 orderInfos = queryMentionedOrders(question);
                 sources = refineSourcesForBusinessStatus(question, orderInfos, sources);
+                long toolLatencyMs = elapsedMs(toolStart);
                 agentRunRecorder.recordStep(
                         run,
                         "tool",
                         "queryOrder",
                         "question=" + question,
                         "orderCount=" + orderInfos.size(),
-                        elapsedMs(toolStart),
+                        toolLatencyMs,
                         "succeeded"
+                );
+                log.info(
+                        "Agent tool step completed runId={} tool=queryOrder orderCount={} latencyMs={}",
+                        run.id(),
+                        orderInfos.size(),
+                        toolLatencyMs
                 );
             } else if (requestedOrderQuery) {
                 agentRunRecorder.recordStep(
@@ -136,9 +167,16 @@ public class AgentService {
                         0,
                         "skipped"
                 );
+                log.warn(
+                        "Agent tool step skipped runId={} tool=queryOrder reason=no_permission username={} knowledgeBaseId={}",
+                        run.id(),
+                        currentUser.username(),
+                        knowledgeBase.id()
+                );
             }
 
             if (sources.isEmpty() && orderInfos.isEmpty()) {
+                // Guardrail: avoid paying for or trusting a model answer when neither RAG nor tools supplied evidence.
                 answer = "知识库未提供足够依据。";
                 agentRunRecorder.recordStep(
                         run,
@@ -149,27 +187,52 @@ public class AgentService {
                         0,
                         "succeeded"
                 );
+                log.info("Agent evidence guardrail returned runId={} reason=no_sources_or_tools", run.id());
             } else {
                 String userPrompt = buildUserPrompt(knowledgeBase, question, sources, orderInfos);
+                log.info(
+                        "Agent LLM step started runId={} model={} promptChars={} sourceCount={} toolResultCount={}",
+                        run.id(),
+                        properties.getChatModel(),
+                        userPrompt.length(),
+                        sources.size(),
+                        orderInfos.size()
+                );
                 Instant modelStart = Instant.now();
                 answer = chatClient.prompt()
                         .toolCallbacks(agentToolRegistry.allowedTools(canUseBusinessTools))
                         .user(userPrompt)
                         .call()
                         .content();
+                long modelLatencyMs = elapsedMs(modelStart);
                 agentRunRecorder.recordStep(
                         run,
                         "llm",
                         "generateAnswer",
                         "promptChars=" + userPrompt.length() + ", allowedBusinessTools=" + canUseBusinessTools,
                         agentRunRecorder.summarizeText(answer),
-                        elapsedMs(modelStart),
+                        modelLatencyMs,
                         "succeeded"
+                );
+                log.info(
+                        "Agent LLM step completed runId={} model={} answerChars={} latencyMs={}",
+                        run.id(),
+                        properties.getChatModel(),
+                        answer == null ? 0 : answer.length(),
+                        modelLatencyMs
                 );
             }
         } catch (RuntimeException ex) {
             runStatus = "failed";
             errorMessage = ex.getMessage();
+            log.error(
+                    "Agent run failed runId={} knowledgeBaseId={} status={} message={}",
+                    run.id(),
+                    knowledgeBase.id(),
+                    runStatus,
+                    ex.getMessage(),
+                    ex
+            );
             throw ex;
         } finally {
             toolCalls = toolExecutionRecorder.drain();
@@ -181,6 +244,16 @@ public class AgentService {
                     toolCalls.size(),
                     runStatus,
                     errorMessage
+            );
+            log.info(
+                    "Agent run completed runId={} status={} usedRag={} usedTools={} retrievedCount={} toolCallCount={} elapsedMs={}",
+                    run.id(),
+                    runStatus,
+                    !sources.isEmpty(),
+                    !toolCalls.isEmpty(),
+                    sources.size(),
+                    toolCalls.size(),
+                    Duration.between(start, Instant.now()).toMillis()
             );
         }
 

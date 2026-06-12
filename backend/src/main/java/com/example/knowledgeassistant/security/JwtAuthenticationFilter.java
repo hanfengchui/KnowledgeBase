@@ -5,6 +5,8 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -18,6 +20,8 @@ import java.util.stream.Collectors;
 
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
 
     private final JwtService jwtService;
     private final AuthService authService;
@@ -55,8 +59,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                 .collect(Collectors.toSet())
                 );
                 SecurityContextHolder.getContext().setAuthentication(authentication);
+                log.debug(
+                        "JWT authentication accepted user={} tenant={} roles={}",
+                        currentUser.username(),
+                        currentUser.tenantCode(),
+                        currentUser.roleCodes()
+                );
             } catch (InvalidTokenException ex) {
                 SecurityContextHolder.clearContext();
+                log.warn(
+                        "JWT authentication rejected method={} path={} reason={}",
+                        request.getMethod(),
+                        request.getRequestURI(),
+                        ex.getMessage()
+                );
                 throw new BadCredentialsException(ex.getMessage(), ex);
             }
         }

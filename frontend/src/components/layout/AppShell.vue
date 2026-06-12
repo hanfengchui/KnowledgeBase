@@ -19,6 +19,12 @@
         </div>
       </div>
 
+      <div class="sidebar-clay-scene" aria-hidden="true">
+        <span class="sidebar-clay-node sidebar-clay-node--mint"></span>
+        <span class="sidebar-clay-node sidebar-clay-node--peach"></span>
+        <span class="sidebar-clay-node sidebar-clay-node--lilac"></span>
+      </div>
+
       <SidebarNav :items="visibleMenus" :active-name="String(route.name || '')" @navigate="handleNavigate" />
 
       <div class="sidebar-panel">

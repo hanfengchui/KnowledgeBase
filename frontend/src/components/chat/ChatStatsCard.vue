@@ -3,7 +3,7 @@
     <div class="card-head">
       <div>
         <h3>运行状态</h3>
-        <p>当前回答的检索和模型信息。</p>
+        <p>检索、模型和工具执行概况。</p>
       </div>
     </div>
     <div class="metric-grid metric-grid--light">

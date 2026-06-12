@@ -5,6 +5,8 @@ import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.poi.xwpf.extractor.XWPFWordExtractor;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -16,6 +18,8 @@ import java.util.Locale;
 
 @Service
 public class DocumentContentExtractor {
+
+    private static final Logger log = LoggerFactory.getLogger(DocumentContentExtractor.class);
 
     private final List<DocumentParser> parsers = List.of(
             new PlainTextDocumentParser(),
@@ -32,11 +36,12 @@ public class DocumentContentExtractor {
             throw new DocumentParseException("上传文件为空，无法建立索引");
         }
 
-        return parsers.stream()
-                .filter(parser -> parser.supports(fileName))
+        DocumentParser parser = parsers.stream()
+                .filter(candidate -> candidate.supports(fileName))
                 .findFirst()
-                .map(parser -> new DocumentParserResult(parser.documentType(), parser.extractText(fileName, bytes)))
                 .orElseThrow(() -> new DocumentParseException("仅支持 .txt、.md、.pdf、.docx 文档"));
+        log.debug("Document parser selected fileName={} parserType={} sizeBytes={}", fileName, parser.documentType(), bytes.length);
+        return new DocumentParserResult(parser.documentType(), parser.extractText(fileName, bytes));
     }
 
     private static String ensureHasText(String label, String text) {

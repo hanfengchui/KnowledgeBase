@@ -11,6 +11,8 @@ import com.example.knowledgeassistant.security.CurrentUser;
 import com.example.knowledgeassistant.security.InvalidTokenException;
 import com.example.knowledgeassistant.security.JwtClaims;
 import com.example.knowledgeassistant.security.JwtService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -31,6 +33,8 @@ import java.util.stream.Collectors;
 
 @Service
 public class DatabaseAuthService implements AuthService {
+
+    private static final Logger log = LoggerFactory.getLogger(DatabaseAuthService.class);
 
     private final JdbcTemplate jdbcTemplate;
     private final PasswordEncoder passwordEncoder;
@@ -55,6 +59,7 @@ public class DatabaseAuthService implements AuthService {
     @Override
     @Transactional
     public LoginResponse login(LoginRequest request) {
+        log.info("Login attempt username={} tenantCodeProvided={}", request.username(), StringUtils.hasText(request.tenantCode()));
         UserAccount user = findUserByUsername(request.username())
                 .orElseThrow(() -> loginFailed(request.username(), "用户名或密码错误"));
 
@@ -86,12 +91,26 @@ public class DatabaseAuthService implements AuthService {
                 "username=" + user.username() + ", tenant=" + tenantContext.code(),
                 HttpStatus.OK.value()
         );
+        log.info(
+                "Login succeeded username={} userId={} tenant={} platformAdmin={} roleCount={}",
+                user.username(),
+                user.id(),
+                tenantContext.code(),
+                platformAdmin,
+                roleCodes.size()
+        );
         return new LoginResponse(issuedToken.token(), "Bearer", issuedToken.expiresAt());
     }
 
     @Override
     @Transactional
     public LoginResponse switchTenant(CurrentUser currentUser, SwitchTenantRequest request) {
+        log.info(
+                "Switch tenant requested username={} fromTenant={} targetTenantId={}",
+                currentUser.username(),
+                currentUser.tenantCode(),
+                request.tenantId()
+        );
         if (!currentUser.isPlatformAdmin()) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "仅平台管理员可切换租户");
         }
@@ -116,12 +135,19 @@ public class DatabaseAuthService implements AuthService {
                 "tenant=" + tenantContext.code(),
                 HttpStatus.OK.value()
         );
+        log.info(
+                "Switch tenant succeeded username={} targetTenant={} roleCount={}",
+                currentUser.username(),
+                tenantContext.code(),
+                roleCodes.size()
+        );
         return new LoginResponse(issuedToken.token(), "Bearer", issuedToken.expiresAt());
     }
 
     @Override
     @Transactional(readOnly = true)
     public AuthMeResponse me(CurrentUser currentUser) {
+        log.debug("Loading current user profile username={} tenant={}", currentUser.username(), currentUser.tenantCode());
         UserAccount user = findUserById(currentUser.userId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "登录已失效"));
         TenantContext tenant = currentUser.tenantId() == null ? null : findActiveTenantById(currentUser.tenantId())
@@ -186,30 +212,45 @@ public class DatabaseAuthService implements AuthService {
                 "tokenId=" + currentUser.tokenId(),
                 HttpStatus.OK.value()
         );
+        log.info("Logout succeeded username={} tenant={} tokenId={}", currentUser.username(), currentUser.tenantCode(), currentUser.tokenId());
     }
 
     @Override
     @Transactional(readOnly = true)
     public CurrentUser loadCurrentUser(JwtClaims claims) {
         if (isTokenRevoked(claims.tokenId())) {
+            log.warn("Rejected revoked token tokenId={}", claims.tokenId());
             throw new InvalidTokenException("Token has been revoked");
         }
 
         UserAccount user = findUserById(claims.userId())
-                .orElseThrow(() -> new InvalidTokenException("User not found"));
+                .orElseThrow(() -> {
+                    log.warn("Rejected token for missing user userId={}", claims.userId());
+                    return new InvalidTokenException("User not found");
+                });
         if (!"active".equalsIgnoreCase(user.status())) {
+            log.warn("Rejected token for disabled user username={} status={}", user.username(), user.status());
             throw new InvalidTokenException("User is disabled");
         }
 
         boolean platformAdmin = hasPlatformAdminRole(user.id());
         if (!platformAdmin) {
             if (user.tenantId() == null || claims.tenantId() == null || !user.tenantId().equals(claims.tenantId())) {
+                log.warn(
+                        "Rejected token with invalid tenant scope username={} userTenant={} tokenTenant={}",
+                        user.username(),
+                        user.tenantId(),
+                        claims.tenantId()
+                );
                 throw new InvalidTokenException("Tenant scope is invalid");
             }
         }
 
         TenantContext tenant = claims.tenantId() == null ? null : findActiveTenantById(claims.tenantId())
-                .orElseThrow(() -> new InvalidTokenException("Tenant is unavailable"));
+                .orElseThrow(() -> {
+                    log.warn("Rejected token for unavailable tenant username={} tenantId={}", user.username(), claims.tenantId());
+                    return new InvalidTokenException("Tenant is unavailable");
+                });
         Set<String> roleCodes = loadRoleCodes(user.id(), tenant == null ? null : tenant.id());
 
         return new CurrentUser(
@@ -224,6 +265,7 @@ public class DatabaseAuthService implements AuthService {
     }
 
     private ResponseStatusException loginFailed(String username, String reason) {
+        log.warn("Login failed username={} reason={}", username, reason);
         auditLogService.record(
                 null,
                 null,

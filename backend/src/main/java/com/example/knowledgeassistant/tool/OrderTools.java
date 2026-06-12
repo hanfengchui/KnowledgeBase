@@ -2,6 +2,8 @@ package com.example.knowledgeassistant.tool;
 
 import com.example.knowledgeassistant.dto.OrderInfo;
 import com.example.knowledgeassistant.service.ToolExecutionRecorder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springaicommunity.mcp.annotation.McpTool;
@@ -14,6 +16,8 @@ import java.util.Map;
 
 @Component
 public class OrderTools {
+
+    private static final Logger log = LoggerFactory.getLogger(OrderTools.class);
 
     private final ToolExecutionRecorder recorder;
     private final Map<String, OrderInfo> sampleOrders = Map.of(
@@ -58,6 +62,7 @@ public class OrderTools {
             String orderNo
     ) {
         String normalizedOrderNo = orderNo == null ? "" : orderNo.trim().toUpperCase(Locale.ROOT);
+        log.info("Tool queryOrder invoked orderNo={}", normalizedOrderNo);
         OrderInfo result = sampleOrders.getOrDefault(normalizedOrderNo, new OrderInfo(
                 normalizedOrderNo,
                 "未知客户",
@@ -68,6 +73,7 @@ public class OrderTools {
         ));
 
         recorder.record("queryOrder", "{\"orderNo\":\"" + normalizedOrderNo + "\"}", result.toString());
+        log.info("Tool queryOrder completed orderNo={} status={}", normalizedOrderNo, result.status());
         return result;
     }
 }

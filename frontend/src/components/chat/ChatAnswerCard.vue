@@ -6,7 +6,7 @@
         <p>{{ knowledgeBaseName || '未选择知识库' }}</p>
       </div>
     </div>
-    <div class="answer-box">{{ answer || '暂无回答。' }}</div>
+    <div :class="['answer-box', { 'answer-box--empty': !answer }]">{{ answer || '提交问题后在这里查看回答。' }}</div>
   </article>
 </template>
 

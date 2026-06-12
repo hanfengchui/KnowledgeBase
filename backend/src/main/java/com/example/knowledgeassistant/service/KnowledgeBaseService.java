@@ -110,6 +110,13 @@ public class KnowledgeBaseService {
         UUID id = UUID.randomUUID();
         String code = nextAvailableCode(tenantId, baseCode);
         boolean defaultKnowledgeBase = tenantKnowledgeBaseCount(tenantId) == 0;
+        log.info(
+                "Creating knowledge base tenantId={} username={} code={} default={}",
+                tenantId,
+                currentUser.username(),
+                code,
+                defaultKnowledgeBase
+        );
         jdbcTemplate.update("""
                 INSERT INTO knowledge_bases (id, tenant_id, code, name, description, is_default)
                 VALUES (?, ?, ?, ?, ?, ?)
@@ -124,6 +131,7 @@ public class KnowledgeBaseService {
                 "name=" + summary.name() + ", code=" + summary.code(),
                 HttpStatus.OK.value()
         );
+        log.info("Knowledge base created knowledgeBaseId={} tenantId={} code={}", id, tenantId, summary.code());
         return summary;
     }
 
@@ -143,6 +151,13 @@ public class KnowledgeBaseService {
         }
 
         String code = nextAvailableCode(existing.tenantId(), baseCode, existing.id());
+        log.info(
+                "Updating knowledge base knowledgeBaseId={} tenantId={} username={} newCode={}",
+                existing.id(),
+                existing.tenantId(),
+                currentUser.username(),
+                code
+        );
         jdbcTemplate.update("""
                 UPDATE knowledge_bases
                 SET code = ?,
@@ -161,6 +176,7 @@ public class KnowledgeBaseService {
                 "name=" + summary.name() + ", code=" + summary.code(),
                 HttpStatus.OK.value()
         );
+        log.info("Knowledge base updated knowledgeBaseId={} code={}", existing.id(), summary.code());
         return summary;
     }
 
@@ -202,6 +218,7 @@ public class KnowledgeBaseService {
 
         String fileName = Optional.ofNullable(file.getOriginalFilename()).orElse("document.txt");
         String documentType = detectDocumentType(fileName);
+        long fileSize = file.getSize();
 
         byte[] bytes;
         try {
@@ -213,6 +230,17 @@ public class KnowledgeBaseService {
         UUID documentId = UUID.randomUUID();
         String contentType = Optional.ofNullable(file.getContentType()).orElse("application/octet-stream");
         String contentHash = sha256(bytes);
+        log.info(
+                "Document ingest started documentId={} knowledgeBaseId={} tenantId={} username={} fileName={} contentType={} sizeBytes={} detectedType={}",
+                documentId,
+                knowledgeBase.id(),
+                knowledgeBase.tenantId(),
+                currentUser.username(),
+                fileName,
+                contentType,
+                fileSize,
+                documentType
+        );
 
         jdbcTemplate.update("""
                 INSERT INTO kb_documents (
@@ -226,12 +254,20 @@ public class KnowledgeBaseService {
 
             DocumentParserResult parsed = documentContentExtractor.extract(fileName, bytes);
             List<TextChunk> chunks = documentChunker.chunk(parsed.text());
+            log.info(
+                    "Document parsed documentId={} parserType={} charCount={} chunkCount={}",
+                    documentId,
+                    parsed.documentType(),
+                    parsed.text().length(),
+                    chunks.size()
+            );
             List<Document> aiDocuments = saveChunks(documentId, knowledgeBase, fileName, parsed.documentType(), contentHash, chunks);
 
             String message = "文档已完成入库，可用于知识问答。";
             if (properties.isVectorEnabled()) {
                 try {
                     addToVectorStore(aiDocuments);
+                    log.info("Document vectors indexed documentId={} chunkCount={}", documentId, aiDocuments.size());
                 } catch (RuntimeException ex) {
                     message = "文档已入库，当前向量写入不可用，系统将自动使用关键词检索兜底。";
                     log.warn("Vector store add failed, falling back to keyword retrieval: {}", rootMessage(ex));
@@ -262,16 +298,19 @@ public class KnowledgeBaseService {
         } catch (DocumentParseException ex) {
             cleanupDocumentChunks(documentId);
             updateDocumentStatus(documentId, STATUS_FAILED, ex.getMessage(), 0, 0);
+            log.warn("Document ingest rejected documentId={} fileName={} reason={}", documentId, fileName, ex.getMessage());
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage(), ex);
         } catch (IllegalArgumentException ex) {
             cleanupDocumentChunks(documentId);
             String message = "文档内容为空，无法建立索引";
             updateDocumentStatus(documentId, STATUS_FAILED, message, 0, 0);
+            log.warn("Document ingest rejected documentId={} fileName={} reason={}", documentId, fileName, message);
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message, ex);
         } catch (RuntimeException ex) {
             cleanupDocumentChunks(documentId);
             String errorMessage = "文档入库失败: " + rootMessage(ex);
             updateDocumentStatus(documentId, STATUS_FAILED, errorMessage, 0, 0);
+            log.error("Document ingest failed documentId={} fileName={} message={}", documentId, fileName, rootMessage(ex), ex);
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "文档入库失败，请稍后重试", ex);
         }
     }
@@ -339,14 +378,30 @@ public class KnowledgeBaseService {
         CurrentUser currentUser = currentUserProvider.getCurrentUser();
         KnowledgeBaseSummary knowledgeBase = getKnowledgeBase(knowledgeBaseId);
         if (!StringUtils.hasText(query)) {
+            log.debug("Knowledge search skipped knowledgeBaseId={} reason=blank_query", knowledgeBaseId);
             return List.of();
         }
 
         int effectiveTopK = topK > 0 ? topK : properties.getTopK();
         if (!properties.isVectorEnabled()) {
-            return keywordSearch(knowledgeBase, query, effectiveTopK);
+            List<SourceDto> keywordResults = keywordSearch(knowledgeBase, query, effectiveTopK);
+            log.info(
+                    "Knowledge search completed knowledgeBaseId={} mode=keyword_only topK={} resultCount={}",
+                    knowledgeBase.id(),
+                    effectiveTopK,
+                    keywordResults.size()
+            );
+            return keywordResults;
         }
 
+        log.debug(
+                "Knowledge vector search started knowledgeBaseId={} tenantId={} topK={} threshold={} queryChars={}",
+                knowledgeBase.id(),
+                knowledgeBase.tenantId(),
+                effectiveTopK,
+                properties.getSimilarityThreshold(),
+                query.length()
+        );
         SearchRequest request = SearchRequest.builder()
                 .query(query)
                 .topK(effectiveTopK)
@@ -361,13 +416,27 @@ public class KnowledgeBaseService {
                     .filter(source -> knowledgeBase.tenantId().toString().equals(source.tenantId()))
                     .toList();
             if (!vectorResults.isEmpty()) {
+                log.info(
+                        "Knowledge search completed knowledgeBaseId={} mode=vector topK={} resultCount={}",
+                        knowledgeBase.id(),
+                        effectiveTopK,
+                        vectorResults.size()
+                );
                 return vectorResults;
             }
+            log.info("Knowledge vector search returned no results knowledgeBaseId={} topK={}", knowledgeBase.id(), effectiveTopK);
         } catch (RuntimeException ex) {
             log.warn("Vector search failed, falling back to keyword retrieval: {}", rootMessage(ex));
         }
 
-        return keywordSearch(knowledgeBase, query, effectiveTopK);
+        List<SourceDto> keywordResults = keywordSearch(knowledgeBase, query, effectiveTopK);
+        log.info(
+                "Knowledge search completed knowledgeBaseId={} mode=keyword_fallback topK={} resultCount={}",
+                knowledgeBase.id(),
+                effectiveTopK,
+                keywordResults.size()
+        );
+        return keywordResults;
     }
 
     @Transactional
@@ -388,11 +457,21 @@ public class KnowledgeBaseService {
 
         String vectorTableName = validateVectorTableName(properties.getVectorTableName());
         List<Document> documents = queryDocumentsForReindex(currentUser, knowledgeBase);
+        log.info(
+                "Vector reindex requested tenantId={} username={} knowledgeBaseId={} chunkCount={} vectorTable={}",
+                requireTenantScope(currentUser),
+                currentUser.username(),
+                knowledgeBase == null ? "ALL" : knowledgeBase.id().toString(),
+                documents.size(),
+                vectorTableName
+        );
         if (documents.isEmpty()) {
             String message = knowledgeBase == null ? "当前没有可重建索引的文档分片。" : "当前知识库下没有可重建索引的文档分片。";
+            log.info("Vector reindex skipped knowledgeBaseId={} reason=no_documents", knowledgeBase == null ? "ALL" : knowledgeBase.id());
             return new ReindexResponse(0, knowledgeBaseId, knowledgeBase == null ? null : knowledgeBase.name(), vectorTableName, message);
         }
 
+        // Delete only the tenant / knowledge-base slice before adding fresh vectors to preserve isolation.
         if (knowledgeBase == null) {
             vectorStore.delete(new FilterExpressionTextParser().parse("tenant_id == '" + requireTenantScope(currentUser) + "'"));
         } else {
@@ -402,6 +481,11 @@ public class KnowledgeBaseService {
         }
 
         addToVectorStore(documents);
+        log.info(
+                "Vector reindex completed knowledgeBaseId={} chunkCount={}",
+                knowledgeBase == null ? "ALL" : knowledgeBase.id().toString(),
+                documents.size()
+        );
         auditLogService.record(
                 currentUser,
                 "document.reindex",

@@ -3,6 +3,8 @@ package com.example.knowledgeassistant.tool;
 import com.example.knowledgeassistant.dto.SourceDto;
 import com.example.knowledgeassistant.service.KnowledgeBaseService;
 import com.example.knowledgeassistant.service.ToolExecutionRecorder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springaicommunity.mcp.annotation.McpTool;
@@ -14,6 +16,8 @@ import java.util.UUID;
 
 @Component
 public class KnowledgeBaseTools {
+
+    private static final Logger log = LoggerFactory.getLogger(KnowledgeBaseTools.class);
 
     private final KnowledgeBaseService knowledgeBaseService;
     private final ToolExecutionRecorder recorder;
@@ -40,12 +44,19 @@ public class KnowledgeBaseTools {
     ) {
         UUID id = UUID.fromString(knowledgeBaseId);
         int effectiveTopK = topK == null || topK <= 0 ? 5 : Math.min(topK, 10);
+        log.info(
+                "Tool searchKnowledgeBase invoked knowledgeBaseId={} topK={} queryChars={}",
+                knowledgeBaseId,
+                effectiveTopK,
+                query == null ? 0 : query.length()
+        );
         List<SourceDto> sources = knowledgeBaseService.search(id, query, effectiveTopK);
         recorder.record(
                 "searchKnowledgeBase",
                 "{\"knowledgeBaseId\":\"" + knowledgeBaseId + "\",\"query\":\"" + sanitize(query) + "\",\"topK\":" + effectiveTopK + "}",
                 "retrievedCount=" + sources.size()
         );
+        log.info("Tool searchKnowledgeBase completed knowledgeBaseId={} resultCount={}", knowledgeBaseId, sources.size());
         return sources;
     }
 

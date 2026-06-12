@@ -1,26 +1,29 @@
 <template>
-  <section class="page-grid">
-    <ChatQuestionCard
-      v-model:question="question"
-      v-model:top-k="topK"
-      :asking="asking"
-      :can-ask="canAskCurrentKnowledgeBase"
-      :can-use-tools="canUseToolInCurrentKnowledgeBase"
-      :question-examples="questionExamples"
-      @submit="handleAsk"
-    />
+  <section class="workspace-grid">
+    <div class="workspace-column">
+      <ChatQuestionCard
+        v-model:question="question"
+        v-model:top-k="topK"
+        :asking="asking"
+        :can-ask="canAskCurrentKnowledgeBase"
+        :can-use-tools="canUseToolInCurrentKnowledgeBase"
+        :question-examples="questionExamples"
+        @submit="handleAsk"
+      />
 
-    <ChatStatsCard :stats="stats" />
+      <ChatStatsCard :stats="stats" />
+    </div>
 
-    <ChatAnswerCard :knowledge-base-name="stats.knowledgeBaseName || currentKnowledgeBase?.name" :answer="answer" />
+    <div class="workspace-column">
+      <ChatAnswerCard :knowledge-base-name="stats.knowledgeBaseName || currentKnowledgeBase?.name" :answer="answer" />
+      <ChatSourcesCard :sources="sources" />
+    </div>
 
-    <ChatHistoryCard :history="questionHistory" @clear="clearQuestionHistory" @reuse="reuseHistoryQuestion" />
-
-    <ChatAgentTraceCard :agent-trace="agentTrace" />
-
-    <ChatToolCallsCard :tool-calls="toolCalls" />
-
-    <ChatSourcesCard :sources="sources" />
+    <div class="workspace-column workspace-column--side">
+      <ChatAgentTraceCard :agent-trace="agentTrace" />
+      <ChatToolCallsCard :tool-calls="toolCalls" />
+      <ChatHistoryCard :history="questionHistory" @clear="clearQuestionHistory" @reuse="reuseHistoryQuestion" />
+    </div>
   </section>
 </template>
 
